@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "description": "Browser extension for submitting dance events to Danzly",
+  "license": "AGPL-3.0-or-later",
+  "author": "Aleks-Daniel Jakimenko-Aleksejev <alex.jakimenko@gmail.com>",
   "type": "module",
   "scripts": {
     "dev": "vite",

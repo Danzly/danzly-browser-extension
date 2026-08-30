@@ -33,3 +33,4 @@ The Firefox manifest declares required `authenticationInfo`, `websiteActivity`, 
 - `pnpm run build` packages the store archives into `release/danzly-extension-chrome-v<version>.zip` and `release/danzly-extension-firefox-v<version>.zip`, each with `manifest.json` at the archive root.
 - Prepare store icons, screenshots, support contact details, and the public privacy-policy URL.
 - Submit the Chrome privacy questionnaire and Firefox data-collection declaration using the descriptions above.
+- AMO's automated validator flags "Unsafe assignment to innerHTML" in the bundled popup script. This comes from Vue's own runtime code (the `v-html` directive handler and its in-DOM template fallback), not extension code — the extension never uses `v-html`. Note this in the reviewer notes when submitting.

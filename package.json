@@ -1,12 +1,13 @@
 {
   "name": "danzly-browser-extension",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Browser extension for submitting dance events to Danzly",
   "license": "AGPL-3.0-or-later",
   "author": "Aleks-Daniel Jakimenko-Aleksejev <alex.jakimenko@gmail.com>",
   "type": "module",
   "scripts": {
+    "clean": "rm -rf dist dist-firefox release node_modules",
     "dev": "vite",
     "build": "vue-tsc --noEmit && pnpm run build:chrome && pnpm run build:firefox",
     "build:chrome": "vite build && node scripts/finalize-manifest.mjs dist && node scripts/package-extension.mjs dist chrome",

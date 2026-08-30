@@ -39,7 +39,8 @@ const submissionTracker = createSubmissionTracker({
 function getContentScriptFile() {
   const contentScriptFile = browser.runtime.getManifest().content_scripts?.[0]?.js?.[0];
   if (!contentScriptFile) throw new Error('Auto-submit content script is missing from the extension bundle');
-  return contentScriptFile;
+  const extensionRoot = browser.runtime.getURL('');
+  return contentScriptFile.startsWith(extensionRoot) ? contentScriptFile.slice(extensionRoot.length) : contentScriptFile;
 }
 
 async function hasAutoSubmitPermission() {

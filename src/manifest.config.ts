@@ -26,8 +26,8 @@ export default defineManifest({
     },
   },
   background: isFirefox
-    ? { scripts: ['src/background/index.ts'], type: 'module' }
-    : { service_worker: 'src/background/index.ts', type: 'module' },
+    ? { scripts: ['src/background.ts'], type: 'module' }
+    : { service_worker: 'src/background.ts', type: 'module' },
   content_scripts: [
     {
       matches: [

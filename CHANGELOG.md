@@ -2,6 +2,13 @@
 
 All notable changes to the Danzly browser extension are documented in this file.
 
+## [1.0.1] - 2026-08-30
+
+### Fixed
+
+- Fixed extension connection in Firefox and Chrome, including automatic detection and manual API-key setup.
+- Fixed re-enabling automatic submission in Firefox.
+
 ## [1.0.0] - 2026-08-30
 
 ### Added

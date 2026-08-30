@@ -33,7 +33,7 @@ export default defineManifest({
       matches: [
         'https://content-script.invalid/*',
         'https://danz.ly/extension/connect*',
-        'http://localhost:9042/extension/connect*',
+        ...(isDevelopment ? ['http://localhost:9042/extension/connect*'] : []),
       ],
       run_at: 'document_start',
       js: ['src/content/index.ts'],

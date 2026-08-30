@@ -6,7 +6,7 @@ export function isDanzlyUrl(url: string) {
     return (
       parsedUrl.hostname === 'danz.ly' ||
       parsedUrl.hostname.endsWith('.danz.ly') ||
-      parsedUrl.origin === 'http://localhost:9042'
+      (import.meta.env.DEV && parsedUrl.origin === 'http://localhost:9042')
     );
   } catch {
     return false;
@@ -17,7 +17,8 @@ export function isExtensionConnectUrl(url: string) {
   try {
     const parsedUrl = new URL(url);
     return (
-      (parsedUrl.origin === 'https://danz.ly' || parsedUrl.origin === 'http://localhost:9042') &&
+      (parsedUrl.origin === 'https://danz.ly' ||
+        (import.meta.env.DEV && parsedUrl.origin === 'http://localhost:9042')) &&
       parsedUrl.pathname === '/extension/connect'
     );
   } catch {

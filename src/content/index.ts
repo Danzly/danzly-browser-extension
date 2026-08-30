@@ -20,7 +20,11 @@ declare global {
 }
 
 function isIgnoredHostname(hostname: string) {
-  return hostname === 'danz.ly' || hostname.endsWith('.danz.ly') || hostname === 'localhost' || hostname === '127.0.0.1';
+  return (
+    hostname === 'danz.ly' ||
+    hostname.endsWith('.danz.ly') ||
+    (import.meta.env.DEV && (hostname === 'localhost' || hostname === '127.0.0.1'))
+  );
 }
 
 if (location.pathname === '/extension/connect' && isIgnoredHostname(location.hostname)) initializeConnectionBridge();

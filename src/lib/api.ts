@@ -8,9 +8,9 @@ const API_REQUEST_INTERVAL_MS = 2500;
 let requestQueue = Promise.resolve();
 let lastRequestStartedAt = 0;
 
-export interface SubmitPageResult {
-  eventSubmissionId: string;
-}
+export type SubmitPageResult =
+  | { alreadySubmitted: true }
+  | { alreadySubmitted: false; eventSubmissionId: string };
 
 export class ApiRequestError extends Error {
   readonly status: number;
@@ -82,10 +82,23 @@ async function request(apiKey: string, procedure: string, input: Record<string, 
   throw new Error('Danzly could not be reached. Please try again.', { cause: lastError });
 }
 
-export async function submitPage(apiKey: string, eventLink: string, userProvidedData?: UserProvidedEventData) {
-  const result = await request(apiKey, 'extension.submitPage', { eventLink, ...(userProvidedData && { userProvidedData }) });
-  if (!isRecord(result) || typeof result.eventSubmissionId !== 'string') throw new Error('Danzly returned an invalid response');
-  return { eventSubmissionId: result.eventSubmissionId };
+export async function submitPage(
+  apiKey: string,
+  eventLink: string,
+  isAutomated: boolean,
+  userProvidedData?: UserProvidedEventData
+) {
+  const result = await request(apiKey, 'extension.submitPage', {
+    eventLink,
+    isAutomated,
+    ...(userProvidedData && { userProvidedData }),
+  });
+  if (!isRecord(result) || typeof result.alreadySubmitted !== 'boolean') {
+    throw new Error('Danzly returned an invalid response');
+  }
+  if (result.alreadySubmitted) return { alreadySubmitted: true } as const;
+  if (typeof result.eventSubmissionId !== 'string') throw new Error('Danzly returned an invalid response');
+  return { alreadySubmitted: false, eventSubmissionId: result.eventSubmissionId } as const;
 }
 
 export async function validateApiKey(apiKey: string) {

@@ -64,13 +64,13 @@ try {
   const { port } = await waitForDebuggerAddress();
   let extensionId;
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const preferences = await readFile(path.join(profileDirectory, 'Default', 'Preferences'), 'utf8')
-      .then((value) => JSON.parse(value))
-      .catch(() => null);
-    const extensionSettings = preferences?.extensions?.settings;
-    if (extensionSettings) {
-      extensionId = Object.entries(extensionSettings).find(([, settings]) => settings.path === extensionDirectory)?.[0];
-    }
+    const targets = await fetch(`http://127.0.0.1:${port}/json/list`)
+      .then((response) => response.json())
+      .catch(() => []);
+    const serviceWorkerUrl = targets.find(
+      (target) => target.type === 'service_worker' && target.url.startsWith('chrome-extension://')
+    )?.url;
+    if (serviceWorkerUrl) extensionId = new URL(serviceWorkerUrl).hostname;
     if (extensionId) break;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -88,21 +88,45 @@ try {
     'Could not connect to the popup debugger'
   );
   await new Promise((resolve) => setTimeout(resolve, 500));
-  socket.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: 'document.body.innerText' } }));
-  const popupText = await new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => reject(new Error('Popup evaluation timed out')), 5_000);
-    socket.addEventListener('message', (event) => {
-      const message = JSON.parse(event.data);
-      if (message.id !== 1) return;
-      clearTimeout(timeoutId);
-      resolve(message.result?.result?.value);
-    });
-  });
-  socket.close();
+
+  let evaluationId = 0;
+  function evaluate(expression) {
+    evaluationId += 1;
+    const id = evaluationId;
+    socket.send(
+      JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } })
+    );
+    return withTimeout(
+      new Promise((resolve) => {
+        function onMessage(event) {
+          const message = JSON.parse(event.data);
+          if (message.id !== id) return;
+          socket.removeEventListener('message', onMessage);
+          resolve(message.result?.result?.value);
+        }
+        socket.addEventListener('message', onMessage);
+      }),
+      'Popup evaluation timed out'
+    );
+  }
+
+  const popupText = await evaluate('document.body.innerText');
   if (typeof popupText !== 'string' || !popupText.includes('Danzly') || !popupText.includes('Not connected')) {
     throw new Error('The extension popup did not render its disconnected state');
   }
-  console.log(`Chromium loaded extension ${extensionId} and rendered the popup`);
+  const submissionResponse = await evaluate(
+    `browser.runtime.sendMessage(${JSON.stringify({ type: 'submit-current-tab', url: 'https://example.com', tabId: 1 })})`
+  );
+  socket.close();
+  if (
+    typeof submissionResponse !== 'object' ||
+    submissionResponse === null ||
+    submissionResponse.success !== false ||
+    submissionResponse.error !== 'No verified API key is configured.'
+  ) {
+    throw new Error('The extension background did not respond to the popup submission request');
+  }
+  console.log(`Chromium loaded extension ${extensionId}, rendered the popup, and handled its submission request`);
 } finally {
   if (browserProcess.exitCode === null) {
     browserProcess.kill('SIGKILL');

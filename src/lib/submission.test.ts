@@ -14,14 +14,14 @@ test('coalesces concurrent submissions and records the URL after success', async
     submitPage: async () => {
       requestCount += 1;
       await new Promise((resolve) => setTimeout(resolve, 10));
-      return { eventSubmissionId: 'submission-id' };
+      return { alreadySubmitted: false, eventSubmissionId: 'submission-id' };
     },
     waitForSubmissionSlot: async () => undefined,
   });
 
   const [first, second] = await Promise.all([
-    tracker.submit('key', 'https://www.facebook.com/events/123'),
-    tracker.submit('key', 'https://www.facebook.com/events/123'),
+    tracker.submit('key', 'https://www.facebook.com/events/123', true),
+    tracker.submit('key', 'https://www.facebook.com/events/123', true),
   ]);
 
   assert.equal(requestCount, 1);
@@ -42,14 +42,14 @@ test('does not record a failed submission and permits a later retry', async () =
     submitPage: async () => {
       requestCount += 1;
       if (requestCount === 1) throw new Error('Temporary failure');
-      return { eventSubmissionId: 'submission-id' };
+      return { alreadySubmitted: false, eventSubmissionId: 'submission-id' };
     },
     waitForSubmissionSlot: async () => undefined,
   });
 
-  await assert.rejects(tracker.submit('key', 'https://www.facebook.com/events/123'), /Temporary failure/);
+  await assert.rejects(tracker.submit('key', 'https://www.facebook.com/events/123', true), /Temporary failure/);
   assert.equal(submittedUrls.size, 0);
-  await tracker.submit('key', 'https://www.facebook.com/events/123');
+  await tracker.submit('key', 'https://www.facebook.com/events/123', true);
   assert.equal(requestCount, 2);
   assert.equal(submittedUrls.size, 1);
 });
@@ -67,16 +67,34 @@ test('serializes different event submissions through the rate-limit slot', async
     submitPage: async (_apiKey, url) => {
       starts.push(url);
       if (starts.length === 1) await firstRequest;
-      return { eventSubmissionId: url };
+      return { alreadySubmitted: false, eventSubmissionId: url };
     },
     waitForSubmissionSlot: async () => undefined,
   });
 
-  const first = tracker.submit('key', 'first');
-  const second = tracker.submit('key', 'second');
+  const first = tracker.submit('key', 'first', true);
+  const second = tracker.submit('key', 'second', true);
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.deepEqual(starts, ['first']);
   releaseFirst?.();
   await Promise.all([first, second]);
   assert.deepEqual(starts, ['first', 'second']);
+});
+
+test('does not count a submission that the API reports as already present', async () => {
+  const submittedUrls = new Set<string>();
+  const tracker = createSubmissionTracker({
+    hasSubmittedUrl: async (url) => submittedUrls.has(url),
+    markSubmissionAttemptFinished: async () => undefined,
+    markUrlSubmitted: async (url) => {
+      submittedUrls.add(url);
+    },
+    submitPage: async () => ({ alreadySubmitted: true }),
+    waitForSubmissionSlot: async () => undefined,
+  });
+
+  const result = await tracker.submit('key', 'https://www.facebook.com/events/123', true);
+
+  assert.deepEqual(result, { alreadySubmitted: true });
+  assert.equal(submittedUrls.size, 0);
 });

@@ -26,6 +26,7 @@ import type {
 } from '../lib/messages';
 
 const AUTO_SUBMIT_SCRIPT_ID = 'danzly-auto-submit';
+const BADGE_BACKGROUND_COLOR = '#6b7280';
 const MAX_URLS_PER_MESSAGE = 100;
 let autoSubmitQueue = Promise.resolve();
 const submissionTracker = createSubmissionTracker({
@@ -96,7 +97,10 @@ async function notifyOpenTabs(enabled: boolean, injectScript = false) {
 
 async function syncSubmittedCountBadge() {
   const submittedUrlCount = await getSubmittedUrlCount();
-  await browser.action.setBadgeText({ text: submittedUrlCount ? String(submittedUrlCount) : '' });
+  await Promise.all([
+    browser.action.setBadgeText({ text: submittedUrlCount ? String(submittedUrlCount) : '' }),
+    browser.action.setBadgeBackgroundColor({ color: BADGE_BACKGROUND_COLOR }),
+  ]);
 }
 
 async function processAutoSubmitUrls(urls: string[]) {
@@ -106,7 +110,7 @@ async function processAutoSubmitUrls(urls: string[]) {
     if (!isFacebookEventUrl(rawUrl)) continue;
     const url = normalizeSubmissionUrl(rawUrl);
     try {
-      const submission = await submissionTracker.submit(apiKey, url);
+      const submission = await submissionTracker.submit(apiKey, url, true);
       if (!submission.alreadySubmitted) await syncSubmittedCountBadge();
     } catch (error) {
       console.error('Danzly: failed to auto-submit event', url, error);
@@ -137,7 +141,7 @@ async function submitCurrentTab(rawUrl: string, tabId: number): Promise<SubmitCu
       .catch(() => []);
     const injectionResult = injectionResults[0]?.result;
     const userProvidedData = isUserProvidedEventData(injectionResult) ? injectionResult : undefined;
-    const submission = await submissionTracker.submit(apiKey, url, userProvidedData);
+    const submission = await submissionTracker.submit(apiKey, url, false, userProvidedData);
     if (!submission.alreadySubmitted) await syncSubmittedCountBadge();
     return { success: true, ...submission };
   } catch (error) {
@@ -221,6 +225,10 @@ function isConnectPageSender(sender: browser.Runtime.MessageSender) {
   return !!senderUrl && isExtensionConnectUrl(senderUrl);
 }
 
+function isExtensionPageSender(sender: browser.Runtime.MessageSender) {
+  return sender.id === browser.runtime.id && !!sender.url && sender.url.startsWith(browser.runtime.getURL(''));
+}
+
 browser.runtime.onMessage.addListener((rawMessage: unknown, sender: browser.Runtime.MessageSender) => {
   const message = parseMessage(rawMessage);
   if (!message) return;
@@ -229,13 +237,13 @@ browser.runtime.onMessage.addListener((rawMessage: unknown, sender: browser.Runt
       if (!sender.tab) return;
       return queueAutoSubmitUrls(message.urls);
     case 'submit-current-tab':
-      if (sender.tab) return;
+      if (!isExtensionPageSender(sender)) return;
       return submitCurrentTab(message.url, message.tabId);
     case 'save-api-key':
-      if (sender.tab) return;
+      if (!isExtensionPageSender(sender)) return;
       return saveApiKey(message.apiKey);
     case 'set-auto-submit':
-      if (sender.tab) return;
+      if (!isExtensionPageSender(sender)) return;
       return updateAutoSubmit(message.enabled);
     case 'connect-api-key':
       if (!isConnectPageSender(sender)) return;

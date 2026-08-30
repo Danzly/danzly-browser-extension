@@ -4,10 +4,15 @@ All notable changes to the Danzly browser extension are documented in this file.
 
 ## [1.0.1] - 2026-08-30
 
+### Changed
+
+- Changed the submitted-page count badge from red to grey.
+
 ### Fixed
 
 - Fixed extension connection in Firefox and Chrome, including automatic detection and manual API-key setup.
 - Fixed re-enabling automatic submission in Firefox.
+- Fixed manual page submission from the extension popup.
 
 ## [1.0.0] - 2026-08-30
 

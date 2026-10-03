@@ -53,7 +53,15 @@
 
     <section class="popup__section">
       <div v-if="currentTabUrl" class="popup__current-url" :title="currentTabUrl">{{ currentTabUrl }}</div>
-      <button class="popup__button" :disabled="!canSubmitCurrentTab || submissionLoading" @click="onSubmitCurrentTab">
+      <button
+        v-if="isFacebookGroupSearchPage"
+        class="popup__button"
+        :disabled="!canSubmitCurrentTab"
+        @click="onSubmitGroups"
+      >
+        {{ submissionLoading ? 'Submitting…' : 'Submit groups' }}
+      </button>
+      <button v-else class="popup__button" :disabled="!canSubmitCurrentTab" @click="onSubmitCurrentTab">
         {{ submissionLoading ? 'Submitting…' : 'Submit this page' }}
       </button>
       <p v-if="statusMessage" class="popup__status-message" :class="{ 'popup__status-message--error': statusIsError }">
@@ -69,8 +77,14 @@
 import { computed, onMounted, ref } from 'vue';
 import browser from 'webextension-polyfill';
 import { DANZLY_URL } from '../lib/danzly';
+import { isFacebookGroupSearchUrl } from '../lib/facebook-groups';
 import { getSettings } from '../lib/storage';
-import type { SaveApiKeyResponse, SetAutoSubmitResponse, SubmitCurrentTabResponse } from '../lib/messages';
+import type {
+  SaveApiKeyResponse,
+  SetAutoSubmitResponse,
+  SubmitCurrentTabResponse,
+  SubmitFacebookGroupsResponse,
+} from '../lib/messages';
 
 const isConnected = ref(false);
 const autoSubmitEnabled = ref(false);
@@ -92,6 +106,8 @@ const canSubmitCurrentTab = computed(
     /^https?:\/\//.test(currentTabUrl.value) &&
     !submissionLoading.value
 );
+
+const isFacebookGroupSearchPage = computed(() => isFacebookGroupSearchUrl(currentTabUrl.value));
 
 function setStatus(message: string, isError = false) {
   statusMessage.value = message;
@@ -184,6 +200,35 @@ async function onToggleAutoSubmit() {
     setStatus(error instanceof Error ? error.message : 'Failed to update automatic submission', true);
   } finally {
     autoSubmitLoading.value = false;
+  }
+}
+
+function isSubmitGroupsResponse(value: unknown): value is SubmitFacebookGroupsResponse {
+  return (
+    isRecord(value) &&
+    typeof value.success === 'boolean' &&
+    (value.success
+      ? typeof value.foundCount === 'number' && typeof value.submittedCount === 'number'
+      : typeof value.error === 'string')
+  );
+}
+
+async function onSubmitGroups() {
+  if (currentTabId.value === null) return;
+  setStatus('');
+  submissionLoading.value = true;
+  try {
+    const result = await browser.runtime.sendMessage({ type: 'submit-facebook-groups', tabId: currentTabId.value });
+    if (!isSubmitGroupsResponse(result)) throw new Error('The extension returned an invalid response');
+    if (result.success) {
+      setStatus(`Found ${result.foundCount} groups, submitted ${result.submittedCount} new. Scroll for more and submit again.`);
+    } else {
+      setStatus(result.error, true);
+    }
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : 'Failed to submit groups', true);
+  } finally {
+    submissionLoading.value = false;
   }
 }
 
@@ -336,7 +381,6 @@ async function onSubmitCurrentTab() {
 .popup__secondary-button {
   padding: 6px 8px;
 }
-
 .popup__button:disabled,
 .popup__secondary-button:disabled {
   background: #000;

@@ -1,7 +1,8 @@
 import browser from 'webextension-polyfill';
-import { ApiRequestError, submitPage, validateApiKey } from '../lib/api';
+import { ApiRequestError, submitFacebookGroups, submitPage, validateApiKey } from '../lib/api';
 import { DANZLY_URL, isDanzlyUrl, isExtensionConnectUrl } from '../lib/danzly';
 import { isFacebookEventUrl, normalizeSubmissionUrl } from '../lib/facebook';
+import { collectFacebookGroups, isFacebookGroupData, isFacebookGroupSearchUrl } from '../lib/facebook-groups';
 import { collectPageEventData, isUserProvidedEventData } from '../lib/page-event-data';
 import { AUTO_SUBMIT_ORIGINS, getAutoSubmitPermissions } from '../lib/permissions';
 import { createSubmissionTracker } from '../lib/submission';
@@ -23,11 +24,13 @@ import type {
   SaveApiKeyResponse,
   SetAutoSubmitResponse,
   SubmitCurrentTabResponse,
+  SubmitFacebookGroupsResponse,
 } from '../lib/messages';
 
 const AUTO_SUBMIT_SCRIPT_ID = 'danzly-auto-submit';
 const BADGE_BACKGROUND_COLOR = '#6b7280';
 const MAX_URLS_PER_MESSAGE = 100;
+const MAX_FACEBOOK_GROUPS_PER_REQUEST = 100;
 let autoSubmitQueue = Promise.resolve();
 const submissionTracker = createSubmissionTracker({
   hasSubmittedUrl,
@@ -154,6 +157,37 @@ async function submitCurrentTab(rawUrl: string, tabId: number): Promise<SubmitCu
   }
 }
 
+async function submitFacebookGroupsFromTab(tabId: number): Promise<SubmitFacebookGroupsResponse> {
+  const [{ apiKey, apiKeyVerified }, tab] = await Promise.all([getSettings(), browser.tabs.get(tabId)]);
+  if (!apiKey || !apiKeyVerified) return { success: false, error: 'No verified API key is configured.' };
+  if (!tab.url || !isFacebookGroupSearchUrl(tab.url)) return { success: false, error: 'Open a Facebook group search page first.' };
+  try {
+    const injectionResults = await browser.scripting.executeScript({ target: { tabId }, func: collectFacebookGroups });
+    const injectionResult: unknown = injectionResults[0]?.result;
+    const groups = Array.isArray(injectionResult) ? injectionResult.filter(isFacebookGroupData) : [];
+    const newGroups = [];
+    for (const group of groups) if (!(await hasSubmittedUrl(group.url))) newGroups.push(group);
+    for (let index = 0; index < newGroups.length; index += MAX_FACEBOOK_GROUPS_PER_REQUEST) {
+      const batch = newGroups.slice(index, index + MAX_FACEBOOK_GROUPS_PER_REQUEST);
+      await submitFacebookGroups(apiKey, batch);
+      for (const group of batch) await markUrlSubmitted(group.url);
+      await syncSubmittedCountBadge();
+    }
+    return { success: true, foundCount: groups.length, submittedCount: newGroups.length };
+  } catch (error) {
+    console.error('Danzly: failed to submit Facebook groups', error);
+    if (error instanceof ApiRequestError && error.status === 401) {
+      await invalidateApiKey();
+      await syncAutoSubmitScript();
+      await notifyOpenTabs(false);
+    }
+    if (error instanceof ApiRequestError && error.status === 404) {
+      return { success: false, error: 'Only Danzly admins can submit groups.' };
+    }
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to submit groups' };
+  }
+}
+
 async function saveApiKey(apiKey: string | null): Promise<SaveApiKeyResponse> {
   if (!apiKey) {
     await setApiKey(null);
@@ -193,6 +227,13 @@ function parseMessage(rawMessage: unknown): BackgroundMessage | null {
   if (rawMessage.type === 'facebook-event-urls-found' && 'urls' in rawMessage && Array.isArray(rawMessage.urls)) {
     const urls = rawMessage.urls.filter((url): url is string => typeof url === 'string').slice(0, MAX_URLS_PER_MESSAGE);
     return { type: rawMessage.type, urls };
+  }
+  if (
+    rawMessage.type === 'submit-facebook-groups' &&
+    'tabId' in rawMessage &&
+    typeof rawMessage.tabId === 'number'
+  ) {
+    return { type: rawMessage.type, tabId: rawMessage.tabId };
   }
   if (
     rawMessage.type === 'submit-current-tab' &&
@@ -236,6 +277,9 @@ browser.runtime.onMessage.addListener((rawMessage: unknown, sender: browser.Runt
     case 'facebook-event-urls-found':
       if (!sender.tab) return;
       return queueAutoSubmitUrls(message.urls);
+    case 'submit-facebook-groups':
+      if (!isExtensionPageSender(sender)) return;
+      return submitFacebookGroupsFromTab(message.tabId);
     case 'submit-current-tab':
       if (!isExtensionPageSender(sender)) return;
       return submitCurrentTab(message.url, message.tabId);

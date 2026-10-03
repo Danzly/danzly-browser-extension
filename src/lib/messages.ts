@@ -5,6 +5,11 @@ export interface FacebookEventUrlsFoundMessage {
   urls: string[];
 }
 
+export interface SubmitFacebookGroupsMessage {
+  type: 'submit-facebook-groups';
+  tabId: number;
+}
+
 export interface SubmitCurrentTabMessage {
   type: 'submit-current-tab';
   url: string;
@@ -38,6 +43,7 @@ export interface AutoSubmitStateChangedMessage {
 export type BackgroundMessage =
   | ConnectApiKeyMessage
   | FacebookEventUrlsFoundMessage
+  | SubmitFacebookGroupsMessage
   | GetConnectionStatusMessage
   | SubmitCurrentTabMessage
   | SaveApiKeyMessage
@@ -46,6 +52,6 @@ export type BackgroundMessage =
 export type SubmitCurrentTabResponse =
   | { success: true; result?: SubmitPageResult; alreadySubmitted: boolean }
   | { success: false; error: string };
-export type SaveApiKeyResponse = { success: true } | { success: false; error: string };
+export type SubmitFacebookGroupsResponse = { success: true; foundCount: number; submittedCount: number } | { success: false; error: string };export type SaveApiKeyResponse = { success: true } | { success: false; error: string };
 export type SetAutoSubmitResponse = { success: true } | { success: false; error: string };
 export type GetConnectionStatusResponse = { connected: boolean };

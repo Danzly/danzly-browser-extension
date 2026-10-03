@@ -1,4 +1,5 @@
 import type { UserProvidedEventData } from './page-event-data';
+import type { FacebookGroupData } from './facebook-groups';
 
 const DEFAULT_API_BASE_URL = import.meta.env?.DEV ? 'http://localhost:3001' : 'https://danz.ly/api';
 const API_BASE_URL = import.meta.env?.VITE_API_URL?.replace(/\/$/, '') || DEFAULT_API_BASE_URL;
@@ -104,4 +105,12 @@ export async function submitPage(
 export async function validateApiKey(apiKey: string) {
   const result = await request(apiKey, 'extension.validateKey', {});
   if (!isRecord(result) || result.valid !== true) throw new Error('Danzly returned an invalid response');
+}
+
+export async function submitFacebookGroups(apiKey: string, groups: FacebookGroupData[]) {
+  const result = await request(apiKey, 'extension.submitFacebookGroups', { groups });
+  if (!isRecord(result) || typeof result.createdCount !== 'number' || typeof result.updatedCount !== 'number') {
+    throw new Error('Danzly returned an invalid response');
+  }
+  return { createdCount: result.createdCount, updatedCount: result.updatedCount };
 }

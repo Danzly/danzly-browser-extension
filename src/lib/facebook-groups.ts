@@ -7,7 +7,7 @@ export interface FacebookGroupData {
 export function isFacebookGroupSearchUrl(url: string) {
   try {
     const parsedUrl = new URL(url);
-    const isFacebookHostname = ['facebook.com', 'www.facebook.com', 'web.facebook.com'].includes(parsedUrl.hostname);
+    const isFacebookHostname = ['facebook.com', 'www.facebook.com', 'm.facebook.com', 'web.facebook.com'].includes(parsedUrl.hostname);
     return isFacebookHostname && /^\/(groups\/search|search\/groups)(\/|$)/.test(parsedUrl.pathname);
   } catch {
     return false;

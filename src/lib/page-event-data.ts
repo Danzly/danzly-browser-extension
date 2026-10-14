@@ -103,14 +103,18 @@ export function collectPageEventData(): UserProvidedEventData | null {
     ...(location && { location: location.slice(0, 2_000) }),
   };
 
-  const textContent = (document.body?.innerText || '')
+  const facebookPostElement = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).find((dialog) =>
+    dialog.querySelector('[data-ad-rendering-role="story_message"], img[data-imgperflogname="feedImage"]')
+  );
+  const textContent = ((facebookPostElement ?? document.body)?.innerText || '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, MAX_TEXT_LENGTH);
   const imageCandidates = [
     ...(imageUrl ? [imageUrl] : []),
-    ...Array.from(document.images)
+    ...Array.from(facebookPostElement?.querySelectorAll('img') ?? document.images)
       .filter((image) => image.naturalWidth >= 300 || image.naturalHeight >= 300)
+      .sort((first, second) => second.naturalWidth * second.naturalHeight - first.naturalWidth * first.naturalHeight)
       .map((image) => image.currentSrc || image.src)
       .filter((url) => /^https?:\/\//.test(url)),
   ];

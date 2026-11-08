@@ -2,6 +2,17 @@
 
 All notable changes to the Danzly browser extension are documented in this file.
 
+## [1.1.0] - 2026-11-08
+
+### Added
+
+- Submit Facebook groups from Facebook group search results: the popup shows a **Submit groups** button that sends group names, links and member counts to Danzly.
+
+### Changed
+
+- Improved automatic Facebook event scanning performance on long and dynamically updating pages.
+- Manual submission of a Facebook post opened in a dialog now sends only that post's text and images, with the largest images first.
+
 ## [1.0.2] - 2026-08-30
 
 ### Changed

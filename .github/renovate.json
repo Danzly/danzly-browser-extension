@@ -1,13 +1,17 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", "schedule:yearly"],
+  "dependencyDashboard": true,
+  "dependencyDashboardApproval": false,
+  "configMigration": false,
+  "vulnerabilityAlerts": { "enabled": false },
   "schedule": [],
   "prHourlyLimit": 8,
   "rangeStrategy": "pin",
   "rebaseWhen": "conflicted",
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
-  "prCreation": "not-pending",
+  "prCreation": "approval",
   "packageRules": [
     {
       "matchPackageNames": ["actions/setup-node"],

@@ -139,6 +139,8 @@ onMounted(async () => {
   autoSubmitEnabled.value = settings.autoSubmitEnabled;
   currentTabUrl.value = activeTabs[0]?.url || '';
   currentTabId.value = activeTabs[0]?.id ?? null;
+  if (currentTabId.value !== null)
+    browser.runtime.sendMessage({ type: 'rescan-tab', tabId: currentTabId.value }).catch(console.error);
 });
 
 async function onDisconnect() {
@@ -263,6 +265,16 @@ async function onSubmitCurrentTab() {
   }
 }
 </script>
+
+<style>
+html,
+body {
+  margin: 0;
+  background: #000;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+</style>
 
 <style scoped>
 .popup {
@@ -413,5 +425,65 @@ async function onSubmitCurrentTab() {
   padding-top: 10px;
   font-size: 11px;
   text-align: right;
+}
+
+@media (pointer: coarse) {
+  .popup {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 20px;
+    font-size: 16px;
+  }
+
+  .popup__title {
+    font-size: 24px;
+  }
+
+  .popup__status,
+  .popup__label,
+  .popup__status-message {
+    font-size: 15px;
+  }
+
+  .popup__hint,
+  .popup__current-url,
+  .popup__footer,
+  .popup__link-button {
+    font-size: 14px;
+  }
+
+  .popup__section {
+    margin-bottom: 24px;
+  }
+
+  .popup__button,
+  .popup__secondary-button {
+    width: 100%;
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .popup__link-button {
+    padding: 12px 0;
+    margin-top: 4px;
+  }
+
+  .popup__input {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .popup__section--row input[type='checkbox'] {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+  }
+
+  .popup__footer a {
+    display: inline-block;
+    padding: 12px 0;
+  }
 }
 </style>

@@ -30,9 +30,16 @@ function createPage() {
   let traversedElements = 0;
   let clockTime = 0;
   let clockStep = 0;
+  function collectAnchors(element: Element): Element[] {
+    return element.links.flatMap((child) => [...(child instanceof HTMLAnchorElement ? [child] : []), ...collectAnchors(child)]);
+  }
+
   const document = {
     visibilityState: 'visible',
     documentElement: new Element(),
+    get links() {
+      return collectAnchors(this.documentElement);
+    },
     createTreeWalker(root: Element, _whatToShow: number, filter: { acceptNode: (node: Element) => number }) {
       function* walk(element: Element): Generator<Element> {
         for (const child of element.links) {
@@ -51,6 +58,7 @@ function createPage() {
   const messages: { urls: string[] }[] = [];
   const timers: { callback: () => void; delay: number }[] = [];
   const idleCallbacks: { callback: (deadline: { timeRemaining: () => number }) => void; timeout: number }[] = [];
+  const messageListeners: ((message: unknown) => unknown)[] = [];
   let onMutations = (_mutations: { type: string; target?: Element; addedNodes?: Element[] }[]) => {};
   const window = {
     requestIdleCallback(callback: (deadline: { timeRemaining: () => number }) => void, options: { timeout: number }) {
@@ -61,7 +69,11 @@ function createPage() {
   };
   const browser = {
     runtime: {
-      onMessage: { addListener() {} },
+      onMessage: {
+        addListener(listener: (message: unknown) => unknown) {
+          messageListeners.push(listener);
+        },
+      },
       sendMessage(message: { urls: string[] }) {
         messages.push(message);
         return Promise.resolve();
@@ -125,6 +137,9 @@ function createPage() {
     flushScan,
     flushAllScans,
     mutate: onMutations,
+    sendMessage: (message: unknown) => {
+      for (const listener of messageListeners) listener(message);
+    },
     getTraversedElements: () => traversedElements,
     setClockStep(step: number) {
       clockStep = step;
@@ -245,4 +260,16 @@ test('yields after the time budget even when the browser reports plenty of idle 
   page.setClockStep(0);
   page.flushAllScans();
   assert.equal(new Set(page.messages.flatMap((message) => message.urls)).size, 500);
+});
+
+test('reports already found links again when asked to rescan', () => {
+  const page = createPage();
+  page.document.documentElement.links = [new page.HTMLAnchorElement('https://www.facebook.com/events/654/')];
+  page.flushAllScans();
+  page.sendMessage({ type: 'rescan-page' });
+  page.flushAllScans();
+  assert.deepEqual(Array.from(page.messages.flatMap((message) => message.urls)), [
+    'https://www.facebook.com/events/654',
+    'https://www.facebook.com/events/654',
+  ]);
 });

@@ -8,6 +8,8 @@ export interface ExtensionSettings {
 }
 
 const SUBMITTED_URLS_LIMIT = 1000;
+const PENDING_AUTO_SUBMIT_URLS_LIMIT = 1000;
+let pendingAutoSubmitUrlsUpdate = Promise.resolve();
 
 function wait(delay: number) {
   return new Promise((resolve) => setTimeout(resolve, delay));
@@ -62,6 +64,44 @@ export async function waitForSubmissionSlot() {
 
 export async function markSubmissionAttemptFinished() {
   await browser.storage.local.set({ lastSubmissionAttemptFinishedAt: Date.now() });
+}
+
+function toStringList(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function updatePendingAutoSubmitUrls(update: (urls: string[], submittedUrls: string[]) => string[]) {
+  pendingAutoSubmitUrlsUpdate = pendingAutoSubmitUrlsUpdate
+    .catch(() => undefined)
+    .then(async () => {
+      const stored = await browser.storage.local.get(['pendingAutoSubmitUrls', 'submittedUrls']);
+      const urls = toStringList(stored.pendingAutoSubmitUrls);
+      const submittedUrls = toStringList(stored.submittedUrls);
+      await browser.storage.local.set({ pendingAutoSubmitUrls: update(urls, submittedUrls) });
+    });
+  return pendingAutoSubmitUrlsUpdate;
+}
+
+export async function getNextPendingAutoSubmitUrl() {
+  await pendingAutoSubmitUrlsUpdate.catch(() => undefined);
+  const { pendingAutoSubmitUrls } = await browser.storage.local.get('pendingAutoSubmitUrls');
+  return toStringList(pendingAutoSubmitUrls)[0];
+}
+
+export function addPendingAutoSubmitUrls(newUrls: string[]) {
+  return updatePendingAutoSubmitUrls((urls, submittedUrls) =>
+    [...new Set([...urls, ...newUrls])]
+      .filter((url) => !submittedUrls.includes(url))
+      .slice(0, PENDING_AUTO_SUBMIT_URLS_LIMIT)
+  );
+}
+
+export function removePendingAutoSubmitUrl(url: string) {
+  return updatePendingAutoSubmitUrls((urls) => urls.filter((pendingUrl) => pendingUrl !== url));
+}
+
+export function clearPendingAutoSubmitUrls() {
+  return updatePendingAutoSubmitUrls(() => []);
 }
 
 export async function clearSubmittedUrls() {

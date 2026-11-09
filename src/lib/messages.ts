@@ -35,6 +35,15 @@ export interface GetConnectionStatusMessage {
   type: 'get-connection-status';
 }
 
+export interface RescanTabMessage {
+  type: 'rescan-tab';
+  tabId: number;
+}
+
+export interface RescanPageMessage {
+  type: 'rescan-page';
+}
+
 export interface AutoSubmitStateChangedMessage {
   type: 'auto-submit-state-changed';
   enabled: boolean;
@@ -45,6 +54,7 @@ export type BackgroundMessage =
   | FacebookEventUrlsFoundMessage
   | SubmitFacebookGroupsMessage
   | GetConnectionStatusMessage
+  | RescanTabMessage
   | SubmitCurrentTabMessage
   | SaveApiKeyMessage
   | SetAutoSubmitMessage;

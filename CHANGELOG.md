@@ -2,6 +2,17 @@
 
 All notable changes to the Danzly browser extension are documented in this file.
 
+## [1.1.1] - 2026-11-09
+
+### Fixed
+
+- Automatic submission no longer loses Facebook event links when many are found at once, for example while scrolling through a page's past events. Found links are queued persistently, so they survive restarts of the extension's background worker.
+
+### Changed
+
+- Opening the extension popup rescans the current page for event links.
+- Requests to Danzly are spaced slightly further apart to stay clear of the server's rate limit.
+
 ## [1.1.0] - 2026-11-08
 
 ### Added

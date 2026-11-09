@@ -5,7 +5,7 @@ const DEFAULT_API_BASE_URL = import.meta.env?.DEV ? 'http://localhost:3001' : 'h
 const API_BASE_URL = import.meta.env?.VITE_API_URL?.replace(/\/$/, '') || DEFAULT_API_BASE_URL;
 const REQUEST_TIMEOUT_MS = 15_000;
 const RETRY_DELAYS_MS = [250, 750];
-const API_REQUEST_INTERVAL_MS = 2500;
+const API_REQUEST_INTERVAL_MS = 3000;
 let requestQueue = Promise.resolve();
 let lastRequestStartedAt = 0;
 

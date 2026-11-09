@@ -1,7 +1,7 @@
 import browser from 'webextension-polyfill';
 import { initializeConnectionBridge } from '../connect';
 import { findFacebookEventUrls } from '../lib/facebook';
-import type { AutoSubmitStateChangedMessage, FacebookEventUrlsFoundMessage } from '../lib/messages';
+import type { FacebookEventUrlsFoundMessage } from '../lib/messages';
 
 const INITIAL_LINK_SCAN_DELAY_MS = 500;
 const MUTATION_SCAN_DELAY_MS = 250;
@@ -13,6 +13,7 @@ const MAX_URLS_PER_SCAN = 100;
 interface AutoSubmitController {
   start: () => void;
   stop: () => void;
+  rescan: () => void;
 }
 
 declare global {
@@ -58,6 +59,7 @@ function sendCandidates(links: string[], includePageUrl: boolean, reportedUrls: 
 function createController() {
   let active = false;
   let fullScanNeeded = true;
+  let documentLinksScanNeeded = false;
   let lastPageUrl = location.href;
   let scanTimeoutId: ReturnType<typeof setTimeout> | null = null;
   let idleCallbackId: number | null = null;
@@ -74,6 +76,8 @@ function createController() {
     if (!active || document.visibilityState !== 'visible') return;
     if (fullScanNeeded) pendingRoots.add(document.documentElement);
     fullScanNeeded = false;
+    if (documentLinksScanNeeded) for (const link of document.links) collectFacebookEventLink(link, pendingLinks);
+    documentLinksScanNeeded = false;
     const startedAt = performance.now();
     let processedElements = 0;
     while (
@@ -170,6 +174,13 @@ function createController() {
     }
   }
 
+  function rescan() {
+    if (!active) return;
+    reportedUrls.clear();
+    documentLinksScanNeeded = true;
+    scheduleLinkScan(0);
+  }
+
   function start() {
     if (active || isIgnoredHostname(location.hostname)) return;
     active = true;
@@ -192,13 +203,14 @@ function createController() {
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     observer.disconnect();
     cancelScheduledScan();
+    documentLinksScanNeeded = false;
     pendingRoots.clear();
     scanRoots.clear();
     pendingLinks.clear();
     walker = null;
   }
 
-  return { start, stop };
+  return { start, stop, rescan };
 }
 
 const existingController = window.__danzlyAutoSubmitController;
@@ -208,17 +220,14 @@ if (existingController) {
   const controller = createController();
   window.__danzlyAutoSubmitController = controller;
   browser.runtime.onMessage.addListener((rawMessage: unknown) => {
-    if (
-      typeof rawMessage !== 'object' ||
-      rawMessage === null ||
-      !('type' in rawMessage) ||
-      rawMessage.type !== 'auto-submit-state-changed' ||
-      !('enabled' in rawMessage) ||
-      typeof rawMessage.enabled !== 'boolean'
-    )
+    if (typeof rawMessage !== 'object' || rawMessage === null || !('type' in rawMessage)) return;
+    if (rawMessage.type === 'rescan-page') {
+      controller.rescan();
+      return Promise.resolve();
+    }
+    if (rawMessage.type !== 'auto-submit-state-changed' || !('enabled' in rawMessage) || typeof rawMessage.enabled !== 'boolean')
       return;
-    const message: AutoSubmitStateChangedMessage = { type: rawMessage.type, enabled: rawMessage.enabled };
-    if (message.enabled) controller.start();
+    if (rawMessage.enabled) controller.start();
     else controller.stop();
   });
   controller.start();

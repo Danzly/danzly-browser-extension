@@ -7,13 +7,17 @@ import { collectPageEventData, isUserProvidedEventData } from '../lib/page-event
 import { AUTO_SUBMIT_ORIGINS, getAutoSubmitPermissions } from '../lib/permissions';
 import { createSubmissionTracker } from '../lib/submission';
 import {
+  addPendingAutoSubmitUrls,
+  clearPendingAutoSubmitUrls,
   clearSubmittedUrls,
+  getNextPendingAutoSubmitUrl,
   getSubmittedUrlCount,
   getSettings,
   hasSubmittedUrl,
   invalidateApiKey,
   markSubmissionAttemptFinished,
   markUrlSubmitted,
+  removePendingAutoSubmitUrl,
   setApiKey,
   setAutoSubmitEnabled,
   waitForSubmissionSlot,
@@ -21,6 +25,7 @@ import {
 import type {
   AutoSubmitStateChangedMessage,
   BackgroundMessage,
+  RescanPageMessage,
   SaveApiKeyResponse,
   SetAutoSubmitResponse,
   SubmitCurrentTabResponse,
@@ -31,7 +36,8 @@ const AUTO_SUBMIT_SCRIPT_ID = 'danzly-auto-submit';
 const BADGE_BACKGROUND_COLOR = '#6b7280';
 const MAX_URLS_PER_MESSAGE = 100;
 const MAX_FACEBOOK_GROUPS_PER_REQUEST = 100;
-let autoSubmitQueue = Promise.resolve();
+let autoSubmitDrainRunning = false;
+let autoSubmitDrainRequested = false;
 const submissionTracker = createSubmissionTracker({
   hasSubmittedUrl,
   markSubmissionAttemptFinished,
@@ -82,13 +88,17 @@ async function syncAutoSubmitScript() {
   ]);
 }
 
+function isScannableTabUrl(url: string) {
+  return /^https?:/.test(url) && !isDanzlyUrl(url);
+}
+
 async function notifyOpenTabs(enabled: boolean, injectScript = false) {
   const message: AutoSubmitStateChangedMessage = { type: 'auto-submit-state-changed', enabled };
   const contentScriptFile = getContentScriptFile();
   const tabs = await browser.tabs.query({});
   await Promise.allSettled(
     tabs.map(async (tab) => {
-      if (!tab.id || !tab.url || !/^https?:/.test(tab.url) || isDanzlyUrl(tab.url)) return;
+      if (!tab.id || !tab.url || !isScannableTabUrl(tab.url)) return;
       if (injectScript) {
         await browser.scripting.executeScript({ target: { tabId: tab.id }, files: [contentScriptFile] });
       } else {
@@ -106,32 +116,68 @@ async function syncSubmittedCountBadge() {
   ]);
 }
 
-async function processAutoSubmitUrls(urls: string[]) {
-  const { apiKey, apiKeyVerified, autoSubmitEnabled } = await getSettings();
-  if (!apiKey || !apiKeyVerified || !autoSubmitEnabled || !(await hasAutoSubmitPermission())) return;
-  for (const rawUrl of urls.slice(0, MAX_URLS_PER_MESSAGE)) {
-    if (!isFacebookEventUrl(rawUrl)) continue;
-    const url = normalizeSubmissionUrl(rawUrl);
+async function getAutoSubmitApiKey() {
+  const [{ apiKey, apiKeyVerified, autoSubmitEnabled }, permissionGranted] = await Promise.all([
+    getSettings(),
+    hasAutoSubmitPermission(),
+  ]);
+  return apiKeyVerified && autoSubmitEnabled && permissionGranted ? apiKey : null;
+}
+
+async function processPendingAutoSubmitUrls() {
+  for (;;) {
+    const apiKey = await getAutoSubmitApiKey();
+    if (!apiKey) return;
+    const url = await getNextPendingAutoSubmitUrl();
+    if (!url) return;
     try {
       const submission = await submissionTracker.submit(apiKey, url, true);
       if (!submission.alreadySubmitted) await syncSubmittedCountBadge();
     } catch (error) {
       console.error('Danzly: failed to auto-submit event', url, error);
       if (error instanceof ApiRequestError && error.status === 401) {
+        await clearPendingAutoSubmitUrls();
         await invalidateApiKey();
         await syncAutoSubmitScript();
         await notifyOpenTabs(false);
-        break;
+        return;
       }
-      if (error instanceof ApiRequestError && error.status === 429) break;
-      if (!(error instanceof ApiRequestError) || error.status !== 400) break;
+      if (!(error instanceof ApiRequestError) || error.status !== 400) {
+        await clearPendingAutoSubmitUrls();
+        return;
+      }
     }
+    await removePendingAutoSubmitUrl(url);
   }
 }
 
-function queueAutoSubmitUrls(urls: string[]) {
-  autoSubmitQueue = autoSubmitQueue.catch(() => undefined).then(() => processAutoSubmitUrls(urls));
-  return autoSubmitQueue;
+async function drainAutoSubmitQueue() {
+  autoSubmitDrainRequested = true;
+  if (autoSubmitDrainRunning) return;
+  autoSubmitDrainRunning = true;
+  try {
+    while (autoSubmitDrainRequested) {
+      autoSubmitDrainRequested = false;
+      await processPendingAutoSubmitUrls();
+    }
+  } finally {
+    autoSubmitDrainRunning = false;
+  }
+}
+
+async function queueAutoSubmitUrls(urls: string[]) {
+  if (!(await getAutoSubmitApiKey())) return;
+  await addPendingAutoSubmitUrls(urls.filter(isFacebookEventUrl).map(normalizeSubmissionUrl));
+  drainAutoSubmitQueue().catch(console.error);
+}
+
+async function rescanTab(tabId: number) {
+  const tab = await browser.tabs.get(tabId);
+  if (!tab.url || !isScannableTabUrl(tab.url) || !(await getAutoSubmitApiKey())) return;
+  const message: RescanPageMessage = { type: 'rescan-page' };
+  await browser.tabs
+    .sendMessage(tabId, message)
+    .catch(() => browser.scripting.executeScript({ target: { tabId }, files: [getContentScriptFile()] }));
 }
 
 async function submitCurrentTab(rawUrl: string, tabId: number): Promise<SubmitCurrentTabResponse> {
@@ -191,6 +237,7 @@ async function submitFacebookGroupsFromTab(tabId: number): Promise<SubmitFaceboo
 async function saveApiKey(apiKey: string | null): Promise<SaveApiKeyResponse> {
   if (!apiKey) {
     await setApiKey(null);
+    await clearPendingAutoSubmitUrls();
     await clearSubmittedUrls();
     await syncSubmittedCountBadge();
     await setAutoSubmitEnabled(false);
@@ -217,8 +264,10 @@ async function saveApiKey(apiKey: string | null): Promise<SaveApiKeyResponse> {
 async function updateAutoSubmit(enabled: boolean): Promise<SetAutoSubmitResponse> {
   if (enabled && !(await hasAutoSubmitPermission())) return { success: false, error: 'Website access was not granted.' };
   await setAutoSubmitEnabled(enabled);
+  if (!enabled) await clearPendingAutoSubmitUrls();
   await syncAutoSubmitScript();
   await notifyOpenTabs(enabled, enabled);
+  if (enabled) drainAutoSubmitQueue().catch(console.error);
   return { success: true };
 }
 
@@ -257,6 +306,9 @@ function parseMessage(rawMessage: unknown): BackgroundMessage | null {
   if (rawMessage.type === 'connect-api-key' && 'apiKey' in rawMessage && typeof rawMessage.apiKey === 'string') {
     return { type: rawMessage.type, apiKey: rawMessage.apiKey };
   }
+  if (rawMessage.type === 'rescan-tab' && 'tabId' in rawMessage && typeof rawMessage.tabId === 'number') {
+    return { type: rawMessage.type, tabId: rawMessage.tabId };
+  }
   if (rawMessage.type === 'get-connection-status') return { type: rawMessage.type };
   return null;
 }
@@ -286,6 +338,9 @@ browser.runtime.onMessage.addListener((rawMessage: unknown, sender: browser.Runt
     case 'save-api-key':
       if (!isExtensionPageSender(sender)) return;
       return saveApiKey(message.apiKey);
+    case 'rescan-tab':
+      if (!isExtensionPageSender(sender)) return;
+      return rescanTab(message.tabId);
     case 'set-auto-submit':
       if (!isExtensionPageSender(sender)) return;
       return updateAutoSubmit(message.enabled);
@@ -316,3 +371,4 @@ browser.runtime.onStartup.addListener(() =>
 chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(console.error);
 syncAutoSubmitScript().catch(console.error);
 syncSubmittedCountBadge().catch(console.error);
+drainAutoSubmitQueue().catch(console.error);
